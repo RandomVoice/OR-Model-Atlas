@@ -3,16 +3,65 @@
 *One `allDifferent`, one separation constraint, and the LeetCode formula falls out as the
 closed-form optimum of the model.*
 
-Given a list of tasks and a cooldown `n` between two **identical** tasks, find the minimum
-total time to finish all of them (idle slots count as time). Each task takes 1 unit of time.
+---
 
-LeetCode wants the greedy/counting answer. The more useful framing is that this is a
-**1-machine sequencing problem with a separation constraint** — and once you say it that
-way, the constraint-programming model writes itself in two lines.
+## The problem
+
+You are given a list of tasks and a cooldown `n`. Each task takes **1 unit of time**, and
+two **identical** tasks must be separated by at least `n` units. The CPU may sit idle.
+Find the minimum total time to finish every task — idle slots count toward the total.
+
+## A small example
+
+```
+tasks = ["A", "A", "A", "B", "B", "B"]
+n     = 2
+```
+
+One optimal schedule, 8 time units long:
+
+```
+time:  1  2  3  4  5  6  7  8
+task:  A  B  _  A  B  _  A  B
+```
+
+The two `A`s at times 1 and 4 are 3 apart, satisfying the cooldown of 2. The idle slots at
+3 and 6 are unavoidable: with three `A`s and a cooldown of 2, the `A`s alone already span
+`1 → 4 → 7`, and only `B` is available to fill in between.
+
+## The Python solution
+
+The accepted answer is a counting argument, not a search:
+
+```python
+from collections import Counter
+
+
+def least_interval(tasks: list[str], n: int) -> int:
+    counts = Counter(tasks)
+    f_max = max(counts.values())               # highest task frequency
+    k = sum(1 for c in counts.values() if c == f_max)   # how many tasks tie for it
+    return max(len(tasks), (f_max - 1) * (n + 1) + k)
+```
+
+For the example: `f_max = 3`, `k = 2`, so `(3 - 1) * (2 + 1) + 2 = 8`, and `len(tasks) = 6`.
+The answer is 8.
+
+The intuition: the most frequent task builds a skeleton of `f_max - 1` blocks, each of
+length `n + 1`, and the `k` tasks tied at `f_max` fill the final block. Everything else
+drops into the idle slots that skeleton creates. The `len(tasks)` branch covers the case
+where there are so many distinct tasks that no idle time is needed at all.
+
+That is the whole LeetCode answer, and it runs in linear time. The rest of this article is
+about a different question: **what optimization model is that formula the answer to?**
 
 ---
 
 ## The modeling decision
+
+The more useful framing is that this is a **1-machine sequencing problem with a separation
+constraint** — and once you say it that way, the constraint-programming model writes itself
+in two lines.
 
 The MIP instinct is a binary `x[t][time] in {0,1}` for every task-slot pair, plus
 `sum_time x[t][time] == 1` bookkeeping, plus a big-M disjunction (`before` OR `after`) for
@@ -144,7 +193,7 @@ same fluency idioms, one level down from the model:
 ```python
 task_name = ["A", "A", "A", "B", "B", "B"]
 n = 2
-start = [1, 4, 7, 2, 5, 8]      # a candidate schedule (1-based times)
+start = [1, 4, 7, 2, 5, 8]      # the schedule from the example above
 
 # allDifferent -> set-size equals list-size
 feasible_slots = len(set(start)) == len(start)
@@ -168,19 +217,17 @@ is the idiom for `forall`. The code reads like the model, not like solver plumbi
 
 ## Why the LeetCode formula is the optimum of this model
 
-The accepted closed form is
+Back to the counting solution at the top:
 
 ```
 answer = max(len(tasks), (f_max - 1) * (n + 1) + k)
 ```
 
-where `f_max` is the highest task frequency and `k` is how many task types hit it.
-
-That is not a separate trick — it is the optimal value of exactly the model above. The most
-frequent task forces `f_max - 1` gaps of length `n + 1`, then the `k` tasks tied at `f_max`
-fill the final block. Everything else fits into the idle slots created by that skeleton,
-unless there are simply more tasks than the skeleton has room for, which is the
-`len(tasks)` branch.
+That is not a separate trick — it is the optimal value of exactly the CP model above. The
+skeleton argument that justifies the formula is a proof about the model's feasible region:
+the most frequent task forces `f_max - 1` gaps of length `n + 1`, the `k` tasks tied at
+`f_max` fill the final block, and the separation constraints permit everything else to be
+placed in the resulting idle slots.
 
 Useful property for a portfolio piece: **you can validate the CP model against the closed
 form** across random instances. If the solver ever disagrees with the formula, one of the
@@ -200,5 +247,3 @@ two is wrong, and you have a reproducible test rather than an opinion.
 
 The point isn't that MIP can't do it — it's that the MIP encoding spends most of its size on
 bookkeeping that CP gets from the choice of variable.
-
-
